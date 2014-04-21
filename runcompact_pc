@@ -1,0 +1,203 @@
+#!/usr/local/bin/perl 
+#
+#Usage: compact.pl selections
+push (@INC, '/afs/cern.ch/na48/offline/job'); # add to require search path
+require "na48.pl";		# na48 perl library (must be in @INC)
+$ENV{'PATH'} = $ENV{'PATH'} . ':/afs/cern.ch/na48/offline/job' . '.';
+$ENV{'SMSLOCATION'} = '/afs/cern.ch/user/n/na48cdr/public/sms';
+############################################################################
+# global variables (change if necessary)
+#
+#    files
+#
+$a_out ="compact.job";
+##$a_out = "more compact.list";	
+$wd = `pwd`; chop $wd;	        # work dir (use FULL pathname for stage-ing)
+$title_file = "compact.list";	# SJOB title output file
+$ontape_file = "ontape.list";	# SJOB title output file
+
+$tmp_file1 = ".__templist1";	# temp file
+$tmp_file2 = ".__templist2";	# temp file
+$tmp_file3 = ".__templist3";	# temp file
+$tmp_file4 = ".__templist4";	# temp file
+$tmp_file = ".__templist";	# temp file
+############################################################################
+#$stage_log = '/u5/vl/na48/read/stagereq.log' ;
+#$sms_select="/afs/cern.ch/user/n/na48cdr/public/sms/sms_select.pl -D list -D nohelp -D norun"; 
+$sms_select="/afs/cern.ch/user/n/na48cdr/public/sms/sms_select.pl";
+#$ENV{'SMS_CONFIG_DIR'} = '/u5/vl/na48cdr/SMS/config';
+$u_time=time;
+#$cmd_file="$ENV{'PWD'}/.na48cmd.$u_time";
+$ENV{'SHELL'} = '/bin/sh';               # make system calls in f77 predictable
+$ENV{'NA48_USER'} = $wd;                 # make $wd known to qsub
+#
+$default_running_mode= "i";
+if ($#ARGV<0) {&usage}		                # no selections, exit with help
+$smsargs = &process_input_options_for_sms;      # this routine is in na48.pl
+if ((!$opt_p)&&(!$opt_u)){
+#    $smsargs.=" -p goldcompact";
+     die "You must specify a stream with -p!";
+}
+#
+if (!-d $wd) {system("mkdir $wd") && die "Can't make $wd: $!. Died"}       
+chdir($wd) || die "Can't cd to $wd. Died";
+#
+#   decide which files are needed and eventually stage them
+#
+if ( -e $tmp_file ){system("rm $tmp_file")};
+if ( -e $tmp_file1 ){system("rm $tmp_file1")};
+if ( -e $tmp_file2 ){system("rm $tmp_file2")};
+if ( -e $tmp_file3 ){system("rm $tmp_file3")};
+#system("$sms_select -c $cmd_file $smsargs  > $tmp_file1");
+system("$sms_select $smsargs  > $tmp_file1");
+#system("cat $tmp_file1 | grep DISK| awk '{print \$7}' > $tmp_file3");
+#system("cat $tmp_file1");
+system("cat $tmp_file1 |awk -F: '{print \$2}'| grep \"^/\" > $tmp_file3");
+#system("cat $tmp_file1 | grep \"^/\"|awk -F: '{print \$2}' > $tmp_file3");
+#system("cat $tmp_file3");
+system("cat $tmp_file1 | grep -e \"\@\"| awk '{print \$1\" \"\$2\" \"\$3\" \"\$4\" \"\$5\" \"\$6\" \"\$7 }' > $tmp_file2");
+
+#
+# sms_select delivers with  -D list a NOT sorted list of bursts.
+# so we have to do it...
+#
+#my(@li,@fi);
+
+# read the input file and fill a list with the whole path and another on only with the burstname
+#open(TITLE,$tmp_file3);
+# while (<TITLE>){
+#	 my(@field) = split(/[\/]/);
+#    push @li, $_;
+#	 push @fi, @field[$#field];
+# }
+#close(TITLE);
+ 
+# sort the list with the burstnames 
+# @fi = sort (@fi);
+#
+# look in the list with the full path for the bursts fromthe sorted list... 
+#if ( -e $tmp_file ){system("rm $tmp_file")};
+#open(OUT,">$tmp_file");
+# for ($i = 0; $i <= $#fi; $i++)
+#  {
+#    print OUT grep /$fi[$i]/, @li;
+#  }
+#close(OUT);
+
+#if ($? > 50200) {
+#    exit 255;
+#}
+#else {
+#    if ($? != 0) {die "Error running $sms_select $smsargs";}
+#}
+#
+#       command file
+#if (-f $cmd_file) {
+#    open(STAGELOG,">>$stage_log");
+#    &pritim('STAGELOG', "$ENV{'USER'}@$ENV{'HOST'} requested staging for $smsargs");
+#    close(STAGELOG);
+#    $ENV{'cmdfile'} = $cmd_file;
+#}
+#
+#       SJOB title
+if (-f $title_file) {system("mv -f $title_file $title_file.old")}
+#system("cat $tmp_file3");
+open(TITLE,"$tmp_file3");
+open(INPUT,">$title_file");
+while (<TITLE>){
+#    chomp;
+#    if(m|^(?: \d+\. \d+\. :)?(/data_\S+)$|) {
+#      print INPUT "fe-cerncs2-a:".$1."\n"; 
+#    } elsif(m|^(?: \d+\. \d+\. :)?(/\S+)$|) {
+#      print INPUT $1."\n";
+#    } else {
+      
+      print INPUT;
+#    }
+}
+close(TITLE);
+print INPUT "*END*\n";
+close(INPUT);
+
+#
+#       ontape title
+if ( $opt_T )
+{
+ if ( -z $tmp_file2 )
+  {		
+	 print "There are no bursts only on tape!! ==> no tapelist created \n"; 
+  }
+ else
+  {
+   if (-f $ontape_file) {system("mv -f $ontape_file $ontape_file.old")}
+   open(TITLE,"$tmp_file2");
+   open(INPUT,">$ontape_file");
+   while (<TITLE>){
+     chomp;
+ 	  my($tape,$sf,$pos,$size,$filepos) = (split)[2,3,4,5,6];
+ 	  my(@file) = split(/([@])/,$filepos);
+
+	  print INPUT "$file[0] ${tape}_${sf}\@${pos} $size \n";
+   }
+   close(TITLE);
+   close(INPUT);
+  }
+}
+
+
+# remove the files we don't need
+
+if ( -e $tmp_file ){system("rm $tmp_file")};
+if ( -e $tmp_file1 ){system("rm $tmp_file1")};
+if ( -e $tmp_file2 ){system("rm $tmp_file2")};
+if ( -e $tmp_file3 ){system("rm $tmp_file3")};
+#
+#    NOW RUN THE JOB
+#
+#exec("$a_out") || die "Can't run $a_out";		# 
+#        END OF JOB
+exit 999;			# should never come here
+sub usage {
+    print "Usage: runcompact_pc selections [options]\n";
+    print " selections: -f FirstRun[:FirstBurstInRun]\n";
+    print "             -l LastRun[:LastBurstInRun]\n";
+    print "             -s StartTime (format YYYY_MM_DD_HH_MM_SS or UNIX timestamp)\n";
+    print "             -e EndTime (format YYYY_MM_DD_HH_MM_SS or UNIX timestamp)\n";
+    print "             -t BeamType e.g KS, KSKL, test, ...\n";
+    print "             -u file_name containing bursts to be processed\n";
+    print " options:    -n Max_Number_of_Bursts \n";
+    print "             -o Max_Number_of_Bursts with tape optimization\n";
+    print "             -p stream_name change input stream (default goldcompact)\n"; 
+    print "             -b send your jour to NQS batch system (qsub) \n";
+    print "             -i run interactively \n";
+    print "             -T if bursts are only on tape write a file with information ontape.list\n";
+    print "                  format: <burstname> <superfile with position> <filesize> \n";
+    print "             -d dry run: generate $title_file and quit\n";
+    print "             -D debugger program   run your favourite debugger\n";
+    print "\n";
+    print " You have to make at least one selection,\n if you specify"; 
+    print " more criteria, they are put in AND\n\n";    
+    print " You can stage in up to 2GB of data with a maximum of 500 files <--- NEW\n\n "; 
+    exit 9;
+}				# 
+
+
+
+
+
+#
+#
+# $Log: runcompact_pc,v $
+# Revision 1.4  2004/11/11 22:37:33  venelin
+# Changed documentation
+#
+# Revision 1.3  2004/06/04 08:06:33  clemenci
+# Version modified by Venelin to use the new database. It is working, but probably needs some cleanup.
+#
+# Revision 1.2  2003/06/26 13:21:39  andrew
+#
+# Forced the use of the -p option
+#
+#
+#
+

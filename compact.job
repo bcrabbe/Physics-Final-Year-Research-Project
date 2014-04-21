@@ -1,0 +1,216 @@
+#!/usr/local/bin/tcsh 
+#
+#  qsub options
+#
+#  QSUB -x -eo      # export environment variables ($NA48_USER!)
+#                   # return stdout and stderr
+#  @$-q cpqvlmedium # Queue request to queue: cpqvlmedium by
+#                   # default.
+#  @$               # No more embedded flags.
+#  
+######################################################################
+# Script to run the NA48 compact reader
+# 
+# this script takes the following parameters:
+#  
+# -s <input file>: use a different name for the input file
+#                  default is: compact.list
+#
+# -d <deb>       : invoke the binary with the debugger <deb> (e.g. dbx)
+#           
+#
+# -c <command file>   : source command file before running the binary
+#           
+# -o <output file>    : sdout and stderr (default: compact.out)
+#
+# Written after the original version raw004.job (author ?)
+# S. Luitz @ CERN 1996
+# Modified for compact
+# G. Wirrer  @ CERN 1997
+######################################################################
+
+
+### Global Setup
+################
+
+# Set NA48_ROOT_DEFAULT to the standard NA48 offline software
+# directory. Hopefully we can agree on a fixed structure relative to
+this
+# directory so that users don't need to change anything below that line
+# this default can be overridden by setting the environment variable 
+# NA48_ROOT
+
+
+# set NA48_ROOT_DEFAULT=/na48soft/offline         # Mainz
+set NA48_ROOT_DEFAULT=/afs/cern.ch/na48/offline   # cern
+set NA48_TOP=/afs/cern.ch/na48                    # cern
+
+
+
+# Set NA48_USER_DEFAULT to the directory in which the user wants to work
+# This can always be overridden by setting the environment variable
+# NA48_USER. By defaulting this directory to . this should not need to
+# be changed very often
+
+set NA48_USER_DEFAULT=.
+
+
+
+########################################################################
+# Don't change anything below this line unless you know what you are
+# doing. There should be no need to change "internal" file names.
+########################################################################
+
+### check the environment for NA48_ROOT and NA48_USER, set the
+### defaults if not there
+
+if (! ${?NA48_ROOT}) then
+  set NA48_ROOT=$NA48_ROOT_DEFAULT
+endif
+
+if (! ${?NA48_USER}) then
+  set NA48_USER=$NA48_USER_DEFAULT
+endif
+
+
+echo compact.job: offline root directory: \"$NA48_ROOT\"
+echo compact.job: offline user directory: \"$NA48_USER\"
+
+cd $NA48_USER
+
+### Setting some file names
+###########################
+
+set execfile=compact			# the file name of the executable
+				
+set bindir=$NA48_USER;					
+set inputfile="$NA48_USER/compact.list"       # the default sjob.input
+file
+set outfile="$NA48_USER/compact.out"          # the output file 
+
+# if the CDSERV (HEPDB) directory is not defined, try to set it
+
+if (! ${?CDSERV}) then
+# setenv CDSERV $NA48_ROOT/hepdb/cdna48    # the HEPDB directory (Mainz)
+setenv CDSERV /hepdb/cdna48                # the HEPDB directory (cern)
+endif
+
+### Parse the command line
+##########################
+
+set argv=`getopt s:d:c:o: $*`        # get the arguments
+
+while ({$1} != "--")
+
+  switch($1)
+	case '-s': 	                      # alternative sjob.title file
+			set inputfile={$2}
+		        echo {$0}: using file \"$inputfile\" as input file
+		 	breaksw
+	
+	case '-d':                            # command to run with debugger
+		 	set debugcmd={$2}
+	   		breaksw
+	case '-c':                            # command file to be sourced
+		 	set cmdfile={$2}
+	   		breaksw
+        case '-o':                            # output (stdout and
+stderr)
+                        set outfile={$2}  
+	                breaksw
+  endsw
+
+  shift
+end
+
+
+### Do some sanity checks before trying to run the program
+##########################################################
+
+
+
+# Check for the existence of the executable file, if it is not there,
+# there is no point in continuing!
+
+if (! -x $bindir/$execfile) then
+  echo {$0}: No executable file \"$bindir/$execfile\" ... exiting
+  exit -1
+endif
+
+
+while ( ! -r $inputfile )   ## wait for file to appear over NFS 
+    if ($waited > 10) then
+	echo {$0}: No input file \"$inputfile\" ... exiting
+	exit -1
+    else
+	sleep 5
+        @ waited ++
+    endif
+end
+
+
+
+### Go for the system dependent set up
+######################################
+
+set os_name=`uname` 			# get the OS name
+set host_name=`hostname`		# get the host name
+
+onintr cleanup				# if interrupted still do the cleanup
+
+
+
+######################
+## source user commands ...
+######################
+if ( ${?cmdfile} ) then
+    set waited=0
+    while ( ! -r $cmdfile )   ## wait for file to appear over NFS 
+	if ($waited > 10) then
+	    echo {$0}: No command file \"$cmdfile\" ... exiting
+	    exit -1
+	else
+	    sleep 5
+            @ waited ++
+	endif
+    end
+    source $cmdfile
+endif
+
+######################
+## Run the program ...
+######################
+
+# now there are 2 possibilities ... either with or without "debug"
+
+if (! ${?debugcmd}) then    
+
+# no debug command specified ... just execute
+
+$bindir/$execfile -l $inputfile >& $outfile #  do it ...
+
+else
+
+# we execute with debug command ...
+
+shift   # get rid of the -- on argv
+
+$debugcmd $argv $bindir/$execfile   # do it ...
+
+
+endif
+
+
+
+### Do the necessary cleaning up
+################################
+
+
+cleanup:
+
+if (${?cmdfile}) then 
+   rm $cmdfile
+endif
+
+### The End
+###########
